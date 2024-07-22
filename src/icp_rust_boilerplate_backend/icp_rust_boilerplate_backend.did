@@ -1,0 +1,64 @@
+type AccessControl = record {
+  read : bool;
+  created_at : nat64;
+  user_id : nat64;
+  expiry : opt nat64;
+  write : bool;
+  file_id : nat64;
+};
+type AccessControlPayload = record {
+  read : bool;
+  user_id : nat64;
+  expiry : opt nat64;
+  write : bool;
+  file_id : nat64;
+};
+type File = record {
+  id : nat64;
+  content : vec nat8;
+  tags : vec text;
+  created_at : nat64;
+  encrypted : bool;
+  filename : text;
+  version : nat32;
+  owner_id : nat64;
+};
+type FilePayload = record {
+  content : vec nat8;
+  tags : vec text;
+  encrypted : bool;
+  filename : text;
+  owner_id : nat64;
+};
+type Message = variant {
+  Error : text;
+  InvalidPayload : text;
+  NotFound : text;
+  Success : text;
+  Unauthorized : text;
+};
+type Result = variant { Ok : User; Err : Message };
+type Result_1 = variant { Ok : Message; Err : Message };
+type Result_2 = variant { Ok : vec AccessControl; Err : Message };
+type Result_3 = variant { Ok : vec File; Err : Message };
+type Result_4 = variant { Ok : AccessControl; Err : Message };
+type Result_5 = variant { Ok : File; Err : Message };
+type User = record {
+  id : nat64;
+  username : text;
+  role : text;
+  created_at : nat64;
+  email : text;
+  two_factor_enabled : bool;
+};
+type UserPayload = record { username : text; role : text; email : text };
+service : {
+  create_user : (UserPayload) -> (Result);
+  disable_two_factor_auth : (nat64) -> (Result_1);
+  enable_two_factor_auth : (nat64) -> (Result_1);
+  get_access_controls : (nat64) -> (Result_2) query;
+  get_files_by_user : (nat64) -> (Result_3) query;
+  search_files_by_tag : (text) -> (Result_3) query;
+  set_access_control : (AccessControlPayload) -> (Result_4);
+  upload_file : (FilePayload) -> (Result_5);
+}
