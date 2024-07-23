@@ -16,8 +16,8 @@ struct User {
     username: String,
     email: String,
     created_at: u64,
-    role: String,             // Added role field
-    two_factor_enabled: bool, // Added two-factor authentication flag
+    role: String,
+    two_factor_enabled: bool,
 }
 
 #[derive(candid::CandidType, Clone, Serialize, Deserialize, Default)]
@@ -28,8 +28,8 @@ struct File {
     content: Vec<u8>,
     encrypted: bool,
     created_at: u64,
-    version: u32,      // Added versioning
-    tags: Vec<String>, // Added tagging
+    version: u32,
+    tags: Vec<String>,
 }
 
 #[derive(candid::CandidType, Clone, Serialize, Deserialize, Default)]
@@ -39,7 +39,7 @@ struct AccessControl {
     read: bool,
     write: bool,
     created_at: u64,
-    expiry: Option<u64>, // Added expiry date
+    expiry: Option<u64>,
 }
 
 #[derive(candid::CandidType, Clone, Serialize, Deserialize, Default)]
@@ -76,7 +76,7 @@ impl Storable for File {
 }
 
 impl BoundedStorable for File {
-    const MAX_SIZE: u32 = 1024;
+    const MAX_SIZE: u32 = 2048;
     const IS_FIXED_SIZE: bool = false;
 }
 
@@ -91,7 +91,7 @@ impl Storable for AccessControl {
 }
 
 impl BoundedStorable for AccessControl {
-    const MAX_SIZE: u32 = 1024;
+    const MAX_SIZE: u32 = 512;
     const IS_FIXED_SIZE: bool = false;
 }
 
@@ -106,7 +106,7 @@ impl Storable for AuditLog {
 }
 
 impl BoundedStorable for AuditLog {
-    const MAX_SIZE: u32 = 1024;
+    const MAX_SIZE: u32 = 512;
     const IS_FIXED_SIZE: bool = false;
 }
 
@@ -419,6 +419,52 @@ fn current_time() -> u64 {
 enum Error {
     NotFound { msg: String },
     Unauthorized { msg: String },
+}
+
+#[ic_cdk::update]
+fn delete_file(file_id: u64, user_id: u64) -> Result<Message, Message> {
+    FILE_STORAGE.with(|storage| {
+        let mut storage = storage.borrow_mut();
+        if let Some(file) = storage.get(&file_id) {
+            if file.owner_id != user_id {
+                return Err(Message::Unauthorized(
+                    "User does not have permission to delete this file".to_string(),
+                ));
+            }
+            storage.remove(&file_id);
+            log_action(user_id, "Deleted file".to_string());
+            Ok(Message::Success("File deleted successfully".to_string()))
+        } else {
+            Err(Message::NotFound("File not found".to_string()))
+        }
+    })
+}
+
+#[ic_cdk::update]
+fn update_file(file_id: u64, payload: FilePayload) -> Result<File, Message> {
+    FILE_STORAGE.with(|storage| {
+        let mut storage = storage.borrow_mut();
+        if let Some(mut file) = storage.get(&file_id) {
+            if file.owner_id != payload.owner_id {
+                return Err(Message::Unauthorized(
+                    "User does not have permission to update this file".to_string(),
+                ));
+            }
+
+            file.filename = payload.filename;
+            file.content = payload.content;
+            file.encrypted = payload.encrypted;
+            file.version += 1;
+            file.tags = payload.tags;
+            file.created_at = current_time(); // Updating the creation time for simplicity
+
+            storage.insert(file_id, file.clone());
+            log_action(payload.owner_id, "Updated file".to_string());
+            Ok(file)
+        } else {
+            Err(Message::NotFound("File not found".to_string()))
+        }
+    })
 }
 
 ic_cdk::export_candid!();

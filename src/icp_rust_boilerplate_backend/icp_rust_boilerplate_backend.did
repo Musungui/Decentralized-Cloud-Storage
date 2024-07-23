@@ -54,11 +54,13 @@ type User = record {
 type UserPayload = record { username : text; role : text; email : text };
 service : {
   create_user : (UserPayload) -> (Result);
+  delete_file : (nat64, nat64) -> (Result_1);
   disable_two_factor_auth : (nat64) -> (Result_1);
   enable_two_factor_auth : (nat64) -> (Result_1);
   get_access_controls : (nat64) -> (Result_2) query;
   get_files_by_user : (nat64) -> (Result_3) query;
   search_files_by_tag : (text) -> (Result_3) query;
   set_access_control : (AccessControlPayload) -> (Result_4);
+  update_file : (nat64, FilePayload) -> (Result_5);
   upload_file : (FilePayload) -> (Result_5);
 }
