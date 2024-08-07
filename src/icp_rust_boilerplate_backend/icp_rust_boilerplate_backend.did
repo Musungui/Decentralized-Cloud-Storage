@@ -13,6 +13,12 @@ type AccessControlPayload = record {
   write : bool;
   file_id : nat64;
 };
+type AuditLog = record {
+  id : nat64;
+  action : text;
+  user_id : nat64;
+  timestamp : nat64;
+};
 type File = record {
   id : nat64;
   content : vec nat8;
@@ -58,6 +64,9 @@ service : {
   enable_two_factor_auth : (nat64) -> (Result_1);
   get_access_controls : (nat64) -> (Result_2) query;
   get_files_by_user : (nat64) -> (Result_3) query;
+  list_all_files : () -> (vec File) query;
+  list_all_users : () -> (vec User) query;
+  list_audit_logs : () -> (vec AuditLog) query;
   search_files_by_tag : (text) -> (Result_3) query;
   set_access_control : (AccessControlPayload) -> (Result_4);
   upload_file : (FilePayload) -> (Result_5);
