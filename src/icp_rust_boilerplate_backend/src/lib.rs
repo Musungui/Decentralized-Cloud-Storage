@@ -10,14 +10,15 @@ use std::{borrow::Cow, cell::RefCell};
 type Memory = VirtualMemory<DefaultMemoryImpl>;
 type IdCell = Cell<u64, Memory>;
 
+// User structure with additional features
 #[derive(candid::CandidType, Clone, Serialize, Deserialize, Default)]
 struct User {
     id: u64,
     username: String,
     email: String,
     created_at: u64,
-    role: String,             // Added role field
-    two_factor_enabled: bool, // Added two-factor authentication flag
+    role: String,
+    two_factor_enabled: bool,
 }
 
 #[derive(candid::CandidType, Clone, Serialize, Deserialize, Default)]
@@ -28,8 +29,8 @@ struct File {
     content: Vec<u8>,
     encrypted: bool,
     created_at: u64,
-    version: u32,      // Added versioning
-    tags: Vec<String>, // Added tagging
+    version: u32,
+    tags: Vec<String>,
 }
 
 #[derive(candid::CandidType, Clone, Serialize, Deserialize, Default)]
@@ -39,7 +40,7 @@ struct AccessControl {
     read: bool,
     write: bool,
     created_at: u64,
-    expiry: Option<u64>, // Added expiry date
+    expiry: Option<u64>,
 }
 
 #[derive(candid::CandidType, Clone, Serialize, Deserialize, Default)]
@@ -183,12 +184,14 @@ enum Message {
 
 #[ic_cdk::update]
 fn create_user(payload: UserPayload) -> Result<User, Message> {
+    // Validate input
     if payload.username.is_empty() || payload.email.is_empty() || payload.role.is_empty() {
         return Err(Message::InvalidPayload(
             "Ensure 'username', 'email', and 'role' are provided.".to_string(),
         ));
     }
 
+    // Validate email format
     let email_regex = Regex::new(r"^[^\s@]+@[^\s@]+\.[^\s@]+$").unwrap();
     if !email_regex.is_match(&payload.email) {
         return Err(Message::InvalidPayload(
@@ -196,6 +199,19 @@ fn create_user(payload: UserPayload) -> Result<User, Message> {
         ));
     }
 
+    // Check for existing user with the same email
+    let email_exists = USER_STORAGE.with(|storage| {
+        storage
+            .borrow()
+            .iter()
+            .any(|(_, user)| user.email == payload.email)
+    });
+
+    if email_exists {
+        return Err(Message::Error("Email already exists".to_string()));
+    }
+
+    // Generate a new user ID
     let id = ID_COUNTER
         .with(|counter| {
             let current_value = *counter.borrow().get();
@@ -203,6 +219,7 @@ fn create_user(payload: UserPayload) -> Result<User, Message> {
         })
         .expect("Cannot increment ID counter");
 
+    // Create new user
     let user = User {
         id,
         username: payload.username,
@@ -211,18 +228,26 @@ fn create_user(payload: UserPayload) -> Result<User, Message> {
         role: payload.role,
         two_factor_enabled: false,
     };
+
+    // Store user
     USER_STORAGE.with(|storage| storage.borrow_mut().insert(id, user.clone()));
+
+    // Log the action
+    log_action(user.id, "Created user".to_string());
+
     Ok(user)
 }
 
 #[ic_cdk::update]
 fn upload_file(payload: FilePayload) -> Result<File, Message> {
+    // Validate input
     if payload.filename.is_empty() || payload.content.is_empty() {
         return Err(Message::InvalidPayload(
             "Ensure 'filename' and 'content' are provided.".to_string(),
         ));
     }
 
+    // Check if the owner exists
     let owner_exists = USER_STORAGE.with(|storage| {
         storage
             .borrow()
@@ -234,6 +259,7 @@ fn upload_file(payload: FilePayload) -> Result<File, Message> {
         return Err(Message::NotFound("Owner not found".to_string()));
     }
 
+    // Generate a new file ID
     let id = ID_COUNTER
         .with(|counter| {
             let current_value = *counter.borrow().get();
@@ -241,6 +267,7 @@ fn upload_file(payload: FilePayload) -> Result<File, Message> {
         })
         .expect("Cannot increment ID counter");
 
+    // Create the file
     let file = File {
         id,
         owner_id: payload.owner_id,
@@ -251,13 +278,19 @@ fn upload_file(payload: FilePayload) -> Result<File, Message> {
         version: 1,
         tags: payload.tags,
     };
+
+    // Store file
     FILE_STORAGE.with(|storage| storage.borrow_mut().insert(id, file.clone()));
+
+    // Log the action
     log_action(payload.owner_id, "Uploaded file".to_string());
+
     Ok(file)
 }
 
 #[ic_cdk::update]
 fn set_access_control(payload: AccessControlPayload) -> Result<AccessControl, Message> {
+    // Validate file existence
     let file_exists = FILE_STORAGE.with(|storage| {
         storage
             .borrow()
@@ -269,6 +302,7 @@ fn set_access_control(payload: AccessControlPayload) -> Result<AccessControl, Me
         return Err(Message::NotFound("File not found".to_string()));
     }
 
+    // Validate user existence
     let user_exists = USER_STORAGE.with(|storage| {
         storage
             .borrow()
@@ -280,6 +314,7 @@ fn set_access_control(payload: AccessControlPayload) -> Result<AccessControl, Me
         return Err(Message::NotFound("User not found".to_string()));
     }
 
+    // Generate a new access control ID
     let id = ID_COUNTER
         .with(|counter| {
             let current_value = *counter.borrow().get();
@@ -287,6 +322,7 @@ fn set_access_control(payload: AccessControlPayload) -> Result<AccessControl, Me
         })
         .expect("Cannot increment ID counter");
 
+    // Create access control record
     let access_control = AccessControl {
         file_id: payload.file_id,
         user_id: payload.user_id,
@@ -295,13 +331,20 @@ fn set_access_control(payload: AccessControlPayload) -> Result<AccessControl, Me
         created_at: current_time(),
         expiry: payload.expiry,
     };
-    ACCESS_CONTROL_STORAGE.with(|storage| storage.borrow_mut().insert(id, access_control.clone()));
+
+    // Store access control
+    ACCESS_CONTROL_STORAGE
+        .with(|storage| storage.borrow_mut().insert(id, access_control.clone()));
+
+    // Log the action
     log_action(payload.user_id, "Set access control".to_string());
+
     Ok(access_control)
 }
 
 #[ic_cdk::query]
 fn get_files_by_user(user_id: u64) -> Result<Vec<File>, Message> {
+    // Retrieve files for the given user
     FILE_STORAGE.with(|storage| {
         let files: Vec<File> = storage
             .borrow()
@@ -320,6 +363,7 @@ fn get_files_by_user(user_id: u64) -> Result<Vec<File>, Message> {
 
 #[ic_cdk::query]
 fn get_access_controls(file_id: u64) -> Result<Vec<AccessControl>, Message> {
+    // Retrieve access controls for the given file
     ACCESS_CONTROL_STORAGE.with(|storage| {
         let controls: Vec<AccessControl> = storage
             .borrow()
@@ -340,6 +384,7 @@ fn get_access_controls(file_id: u64) -> Result<Vec<AccessControl>, Message> {
 
 #[ic_cdk::update]
 fn enable_two_factor_auth(user_id: u64) -> Result<Message, Message> {
+    // Enable two-factor authentication for a user
     USER_STORAGE.with(|storage| {
         let mut storage = storage.borrow_mut();
         if let Some(user) = storage.get(&user_id) {
@@ -358,6 +403,7 @@ fn enable_two_factor_auth(user_id: u64) -> Result<Message, Message> {
 
 #[ic_cdk::update]
 fn disable_two_factor_auth(user_id: u64) -> Result<Message, Message> {
+    // Disable two-factor authentication for a user
     USER_STORAGE.with(|storage| {
         let mut storage = storage.borrow_mut();
         if let Some(user) = storage.get(&user_id) {
@@ -376,6 +422,7 @@ fn disable_two_factor_auth(user_id: u64) -> Result<Message, Message> {
 
 #[ic_cdk::query]
 fn search_files_by_tag(tag: String) -> Result<Vec<File>, Message> {
+    // Search files by tag
     FILE_STORAGE.with(|storage| {
         let files: Vec<File> = storage
             .borrow()
@@ -394,7 +441,44 @@ fn search_files_by_tag(tag: String) -> Result<Vec<File>, Message> {
     })
 }
 
+#[ic_cdk::query]
+fn list_all_users() -> Vec<User> {
+    // List all users
+    USER_STORAGE.with(|storage| {
+        storage
+            .borrow()
+            .iter()
+            .map(|(_, user)| user.clone())
+            .collect()
+    })
+}
+
+#[ic_cdk::query]
+fn list_all_files() -> Vec<File> {
+    // List all files
+    FILE_STORAGE.with(|storage| {
+        storage
+            .borrow()
+            .iter()
+            .map(|(_, file)| file.clone())
+            .collect()
+    })
+}
+
+#[ic_cdk::query]
+fn list_audit_logs() -> Vec<AuditLog> {
+    // List all audit logs
+    AUDIT_LOG_STORAGE.with(|storage| {
+        storage
+            .borrow()
+            .iter()
+            .map(|(_, log)| log.clone())
+            .collect()
+    })
+}
+
 fn log_action(user_id: u64, action: String) {
+    // Log user actions
     let id = ID_COUNTER
         .with(|counter| {
             let current_value = *counter.borrow().get();
@@ -408,6 +492,7 @@ fn log_action(user_id: u64, action: String) {
         action,
         timestamp: current_time(),
     };
+
     AUDIT_LOG_STORAGE.with(|storage| storage.borrow_mut().insert(id, log));
 }
 
@@ -421,4 +506,5 @@ enum Error {
     Unauthorized { msg: String },
 }
 
+// Export candid interface
 ic_cdk::export_candid!();
